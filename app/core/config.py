@@ -51,6 +51,12 @@ class Settings(BaseSettings):
     TEXT_SPLITTER_CHUNK_SIZE: int
     TEXT_SPLITTER_CHUNK_OVERLAP: int
 
+    # MongoDB (local session store)
+    MONGODB_URI: str = "mongodb://localhost:27017"
+    MONGODB_DB: str = "rag_pipeline"
+    MONGODB_SESSIONS_COLLECTION: str = "chat_sessions"
+    MONGODB_SESSION_TTL_DAYS: int = 30
+
     # Retrieval tuning (safe defaults)
     RETRIEVAL_ALPHA: float = 0.75
     RETRIEVAL_LAMBDA_MMR: float = 0.6

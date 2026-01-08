@@ -36,7 +36,18 @@ def generate_answer(query: str, context: str) -> str:
     return _generate_answer_bedrock(query, context)
 
 
-def _generate_answer_bedrock(query: str, context: str) -> str:
+def generate_answer_with_system_prompt(system_prompt: str, query: str, context: str) -> str:
+    """
+    Same as generate_answer(), but lets the caller provide a custom system prompt.
+    Useful for executing tasks using a generated "Act as ..." system prompt.
+    """
+    provider = (settings.LLM_PROVIDER or "bedrock").strip().lower()
+    if provider == "ollama":
+        return _generate_answer_ollama(query, context, system_prompt_override=system_prompt)
+    return _generate_answer_bedrock(query, context, system_prompt_override=system_prompt)
+
+
+def _generate_answer_bedrock(query: str, context: str, system_prompt_override: Optional[str] = None) -> str:
     system_prompt = (
         "You are a helpful, friendly assistant. "
         "Use the provided context when it is relevant. "
@@ -46,6 +57,8 @@ def _generate_answer_bedrock(query: str, context: str) -> str:
         "If the context lacks information for a specific answer, say you don't know. "
         "Do NOT use markdown formatting such as bold, italics, underscores, or code fences in your answer."
     )
+    if (system_prompt_override or "").strip():
+        system_prompt = str(system_prompt_override).strip()
     body = json.dumps({
         "max_tokens": settings.BEDROCK_LLM_MAX_TOKENS,
         "temperature": settings.BEDROCK_LLM_TEMPERATURE,
@@ -82,7 +95,7 @@ def _generate_answer_bedrock(query: str, context: str) -> str:
     return answer or "Insufficient information"
 
 
-def _generate_answer_ollama(query: str, context: str) -> str:
+def _generate_answer_ollama(query: str, context: str, system_prompt_override: Optional[str] = None) -> str:
     if not (settings.OLLAMA_LLM_MODEL or "").strip():
         # Fail safe: don't error hard in production path
         return "Insufficient information"
@@ -94,6 +107,8 @@ def _generate_answer_ollama(query: str, context: str) -> str:
         "Keep it concise: 1–3 short sentences. "
         "Do not use markdown formatting."
     )
+    if (system_prompt_override or "").strip():
+        system_prompt = str(system_prompt_override).strip()
     payload = {
         "model": settings.OLLAMA_LLM_MODEL,
         "messages": [

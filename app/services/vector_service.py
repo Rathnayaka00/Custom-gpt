@@ -1,7 +1,7 @@
 # app/services/vector_service.py
 import time
 import math
-from typing import List, Dict, Set
+from typing import List, Dict, Set, Optional
 from botocore.exceptions import ClientError
 from app.core.config import settings
 from app.core.aws import s3_vectors_client
@@ -50,6 +50,7 @@ def store_vectors_in_s3(processed_chunks: List[Dict], embeddings: List[List[floa
         
         metadata = {
             "filename": filename[:60],
+            "doc_id": s3_key_base[:120],
             "chunk_index": str(i),
             "source_text": chunk_text,
             "chunk_content_type": chunk_type,
@@ -157,6 +158,7 @@ def query_vectors_hybrid(
     candidate_k: int = 40,
     alpha: float = 0.7,
     lambda_mmr: float = 0.5,
+    doc_ids: Optional[List[str]] = None,
 ) -> List[Dict]:
 
     # Step 1: initial semantic candidates from AWS vector store
@@ -164,6 +166,22 @@ def query_vectors_hybrid(
     candidates = query_vectors(query_embedding, top_k=candidate_k)
     if not candidates:
         return []
+
+    # Optional: restrict results to certain documents (session/document-scoped chat).
+    if doc_ids:
+        allowed = [d for d in doc_ids if d]
+        if allowed:
+            prefixes = tuple(f"{d}-chunk" for d in allowed)
+            filtered: List[Dict] = []
+            for c in candidates:
+                key = str(c.get("key") or "")
+                meta = c.get("metadata", {}) or {}
+                doc_id = str(meta.get("doc_id") or "")
+                if (doc_id and doc_id in allowed) or (key and key.startswith(prefixes)):
+                    filtered.append(c)
+            candidates = filtered
+            if not candidates:
+                return []
 
     # Step 2: compute base relevance (higher is better) and normalize
     base_sims = [_base_relevance(c) for c in candidates]

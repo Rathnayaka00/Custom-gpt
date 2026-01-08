@@ -1,11 +1,11 @@
-from typing import Dict, List
+from typing import Dict, List, Optional
 from app.services.embedding_service import create_embeddings_batch
 from app.services.vector_service import query_vectors_hybrid, rerank_results
 from app.core.config import settings
 from app.services.llm_service import generate_answer
 
 
-def ask_with_context(query: str, top_k: int = 5, use_reranking: bool = True) -> Dict:
+def ask_with_context(query: str, top_k: int = 5, use_reranking: bool = True, doc_ids: Optional[List[str]] = None) -> Dict:
     def _variations(q: str) -> List[str]:
         ql = q.lower()
         vars = [q]
@@ -29,6 +29,7 @@ def ask_with_context(query: str, top_k: int = 5, use_reranking: bool = True) -> 
             candidate_k=min(int(settings.RETRIEVAL_MAX_CANDIDATES), max(int(settings.RETRIEVAL_CANDIDATE_K), top_k * 3)),
             alpha=float(settings.RETRIEVAL_ALPHA),
             lambda_mmr=float(settings.RETRIEVAL_LAMBDA_MMR),
+            doc_ids=doc_ids,
         )
         if use_reranking:
             var_results = rerank_results(var_results, var_text)
@@ -70,8 +71,8 @@ def ask_with_context(query: str, top_k: int = 5, use_reranking: bool = True) -> 
     }
 
 
-def answer_with_context(query: str, top_k: int = 5, use_reranking: bool = True) -> str:
-    ctx = ask_with_context(query, top_k=top_k, use_reranking=use_reranking)
+def answer_with_context(query: str, top_k: int = 5, use_reranking: bool = True, doc_ids: Optional[List[str]] = None) -> str:
+    ctx = ask_with_context(query, top_k=top_k, use_reranking=use_reranking, doc_ids=doc_ids)
     context = ctx.get("context", "")
     if not context.strip():
         return "Insufficient information"

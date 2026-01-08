@@ -1,7 +1,6 @@
 import logging
 import tempfile
 from pathlib import Path
-from typing import Dict
 from fastapi import APIRouter, UploadFile, File, HTTPException, status
 from fastapi.responses import StreamingResponse
 from app.core.config import settings
@@ -19,6 +18,7 @@ from app.services.document_service import process_pdf_and_store
 from app.services.file_storage_service import store_uploaded_pdf, stream_pdf_from_s3
 from app.services.qa_service import answer_with_context
 from app.services.deletion_service import delete_embeddings_and_metadata
+from app.services.session_service import create_session, get_session, append_messages
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -55,11 +55,24 @@ async def upload_and_process_document(file: UploadFile = File(...)):
                 detail=f"An unexpected error occurred during document processing: {e}"
             )
 
+    # Create a chat session that is tied to this uploaded document
+    document_id = file.filename.rsplit(".", 1)[0]
+    try:
+        session_id = await create_session([document_id])
+    except Exception as e:
+        logger.exception("Failed to create MongoDB session")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Document uploaded but failed to create session (MongoDB): {e}",
+        )
+
     return ProcessResponse(
         filename=file.filename,
         message="Document processed and vectors stored successfully.",
         total_chunks_processed=total_stored,
-        vector_index=settings.INDEX_NAME
+        vector_index=settings.INDEX_NAME,
+        document_id=document_id,
+        session_id=session_id,
     )
 
 
@@ -119,12 +132,43 @@ async def download_document(s3_key: str):
 @router.post("/ask-with-context", response_model=AskWithContextResponse)
 async def ask_question_with_context(request: SemanticSearchRequest):
     try:
+        doc_ids = None
+        if request.session_id:
+            sess = await get_session(request.session_id)
+            if not sess:
+                raise HTTPException(status_code=404, detail="session_id not found")
+            doc_ids = sess.get("document_ids") or None
+        elif request.s3_key:
+            doc_ids = [request.s3_key]
+
         direct_answer = answer_with_context(
             query=request.query,
             top_k=request.top_k,
             use_reranking=request.use_reranking,
+            doc_ids=doc_ids,
         )
-        return AskWithContextResponse(question=request.query, answer=direct_answer)
+
+        if request.session_id:
+            try:
+                await append_messages(
+                    request.session_id,
+                    [
+                        {"role": "user", "content": request.query},
+                        {"role": "assistant", "content": direct_answer},
+                    ],
+                )
+            except Exception:
+                # Don't fail the request if chat history persistence fails.
+                logger.warning("Failed to persist chat messages for session_id=%s", request.session_id)
+
+        return AskWithContextResponse(
+            question=request.query,
+            answer=direct_answer,
+            session_id=request.session_id,
+            document_ids=doc_ids,
+        )
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error generating answer: {str(e)}")
 
