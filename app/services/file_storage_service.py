@@ -42,12 +42,6 @@ def _ensure_bucket_exists(bucket: str) -> None:
 
 
 def store_uploaded_pdf(file_path: str, filename: str) -> Tuple[str, str]:
-    """
-    Stores the raw uploaded PDF into S3.
-
-    Uses METADATA_BUCKET_NAME for storage to avoid adding new required config.
-    Returns: (bucket, key)
-    """
     bucket = _require_bucket(settings.METADATA_BUCKET_NAME)
     _ensure_bucket_exists(bucket)
 
@@ -61,7 +55,6 @@ def store_uploaded_pdf(file_path: str, filename: str) -> Tuple[str, str]:
     content_type, _ = mimetypes.guess_type(filename)
     content_type = content_type or "application/pdf"
 
-    # upload_file uses multipart automatically for larger files
     _s3_client.upload_file(
         Filename=str(src),
         Bucket=bucket,
@@ -72,9 +65,6 @@ def store_uploaded_pdf(file_path: str, filename: str) -> Tuple[str, str]:
 
 
 def stream_pdf_from_s3(bucket: str, key: str, chunk_size: int = 1024 * 1024) -> Iterator[bytes]:
-    """
-    Stream a PDF from S3 in chunks for FastAPI StreamingResponse.
-    """
     resp = _s3_client.get_object(Bucket=bucket, Key=key)
     body = resp["Body"]
     for chunk in body.iter_chunks(chunk_size=chunk_size):

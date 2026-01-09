@@ -14,22 +14,16 @@ def _strip_reasoning_and_formatting(text: str) -> str:
     t = text.strip()
     t = re.sub(r"<reasoning>[\s\S]*?</reasoning>", "", t, flags=re.IGNORECASE).strip()
     t = re.sub(r"^(Answer:|Final answer:)\s*", "", t, flags=re.IGNORECASE).strip()
-    # Strip common markdown emphasis and code formatting just in case
-    t = re.sub(r"\*\*(.*?)\*\*", r"\1", t)  # bold **text**
-    t = re.sub(r"__(.*?)__", r"\1", t)      # bold __text__
-    t = re.sub(r"(?<!\*)\*([^*]+)\*(?!\*)", r"\1", t)  # italics *text*
-    t = re.sub(r"(?<!_)_([^_]+)_(?!_)", r"\1", t)      # italics _text_
-    t = re.sub(r"`([^`]*)`", r"\1", t)      # inline code `text`
+    t = re.sub(r"\*\*(.*?)\*\*", r"\1", t)  
+    t = re.sub(r"__(.*?)__", r"\1", t)   
+    t = re.sub(r"(?<!\*)\*([^*]+)\*(?!\*)", r"\1", t)
+    t = re.sub(r"(?<!_)_([^_]+)_(?!_)", r"\1", t)      
+    t = re.sub(r"`([^`]*)`", r"\1", t)    
     t = " ".join(t.splitlines()).strip()
     return t
 
 
 def generate_answer(query: str, context: str) -> str:
-    """
-    Generate an answer using the configured LLM provider.
-    - bedrock: uses AWS Bedrock (current default)
-    - ollama: uses local Ollama (/api/chat) for offline answers
-    """
     provider = (settings.LLM_PROVIDER or "bedrock").strip().lower()
     if provider == "ollama":
         return _generate_answer_ollama(query, context)
@@ -37,10 +31,6 @@ def generate_answer(query: str, context: str) -> str:
 
 
 def generate_answer_with_system_prompt(system_prompt: str, query: str, context: str) -> str:
-    """
-    Same as generate_answer(), but lets the caller provide a custom system prompt.
-    Useful for executing tasks using a generated "Act as ..." system prompt.
-    """
     provider = (settings.LLM_PROVIDER or "bedrock").strip().lower()
     if provider == "ollama":
         return _generate_answer_ollama(query, context, system_prompt_override=system_prompt)
@@ -97,7 +87,6 @@ def _generate_answer_bedrock(query: str, context: str, system_prompt_override: O
 
 def _generate_answer_ollama(query: str, context: str, system_prompt_override: Optional[str] = None) -> str:
     if not (settings.OLLAMA_LLM_MODEL or "").strip():
-        # Fail safe: don't error hard in production path
         return "Insufficient information"
 
     system_prompt = (

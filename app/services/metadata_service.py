@@ -170,7 +170,6 @@ def get_vector_keys_by_s3_key(s3_key: str) -> List[str]:
         total_chunks = metadata.get('total_chunks', 0)
         vector_keys = []
         for i in range(total_chunks):
-            # Our vector keys are stored as <s3_key>-chunkXXXX
             vector_keys.append(f"{s3_key}-chunk{str(i).zfill(4)}")
         return vector_keys
     except Exception as e:

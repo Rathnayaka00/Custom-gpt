@@ -13,10 +13,6 @@ _client: Optional[AsyncIOMotorClient] = None
 
 
 def get_mongo_client() -> AsyncIOMotorClient:
-    """
-    Lazily creates a MongoDB client.
-    Motor connects on first operation, so creation is cheap.
-    """
     global _client
     if _client is None:
         _client = AsyncIOMotorClient(str(settings.MONGODB_URI))

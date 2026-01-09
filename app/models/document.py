@@ -9,13 +9,28 @@ class ProcessResponse(BaseModel):
     session_id: str | None = None
 
 
+class UploadSessionItem(BaseModel):
+    filename: str
+    document_id: str
+    total_chunks_processed: int | None = None
+    success: bool = True
+    error: str | None = None
+
+
+class UploadToSessionResponse(BaseModel):
+    session_id: str
+    vector_index: str
+    items: list[UploadSessionItem]
+    total_files: int
+    success_files: int
+    failed_files: int
+
+
 class SemanticSearchRequest(BaseModel):
     query: str
     top_k: int = 15
     use_reranking: bool = True
-    # If provided, restrict retrieval to the document(s) tied to this session.
     session_id: str | None = None
-    # Optional direct document scope (same as metadata `s3_key` / vector key base).
     s3_key: str | None = None
 
 
@@ -55,3 +70,10 @@ class DeleteEmbeddingsResponse(BaseModel):
     deleted_vectors: int
     metadata_deleted: bool
     metadata_marked_deleted: bool
+
+
+class SessionDocumentsResponse(BaseModel):
+    session_id: str
+    document_ids: list[str]
+    documents: list[MetadataItem]
+    missing_document_ids: list[str]

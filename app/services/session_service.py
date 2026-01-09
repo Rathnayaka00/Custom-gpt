@@ -18,18 +18,12 @@ def _utcnow() -> datetime:
 
 
 async def ensure_session_indexes() -> None:
-    """
-    Creates a TTL index so sessions auto-expire.
-    Safe to call repeatedly.
-    """
     db = get_mongo_db()
     coll = db[settings.MONGODB_SESSIONS_COLLECTION]
     try:
-        # TTL: expires_at must be a BSON datetime (timezone-aware is OK; Mongo stores UTC)
         await coll.create_index("session_id", unique=True)
         await coll.create_index("expires_at", expireAfterSeconds=0)
     except Exception as e:
-        # Don't crash the app on startup for index issues; log and keep running.
         logger.warning("Failed to ensure Mongo session indexes: %s", e)
 
 
@@ -107,7 +101,6 @@ async def append_generated_prompt(
     intent: str,
     prompt: str,
     document_ids: Optional[List[str]] = None,
-    attachment_details: Optional[str] = None,
     used_context: bool = False,
 ) -> None:
     if not session_id:
@@ -120,8 +113,6 @@ async def append_generated_prompt(
         "used_context": bool(used_context),
         "created_at": now,
     }
-    if attachment_details and attachment_details.strip():
-        item["attachment_details"] = attachment_details.strip()
 
     db = get_mongo_db()
     coll = db[settings.MONGODB_SESSIONS_COLLECTION]
@@ -168,5 +159,27 @@ async def append_execution(
     except PyMongoError as e:
         logger.exception("Failed to append execution")
         raise RuntimeError(f"MongoDB error appending execution: {e}") from e
+
+
+async def add_documents_to_session(session_id: str, document_ids: List[str]) -> None:
+    if not session_id:
+        return
+    docs = list(dict.fromkeys([d for d in (document_ids or []) if d]))
+    if not docs:
+        return
+    now = _utcnow()
+    db = get_mongo_db()
+    coll = db[settings.MONGODB_SESSIONS_COLLECTION]
+    try:
+        await coll.update_one(
+            {"session_id": session_id},
+            {
+                "$addToSet": {"document_ids": {"$each": docs}},
+                "$set": {"updated_at": now},
+            },
+        )
+    except PyMongoError as e:
+        logger.exception("Failed to add documents to session")
+        raise RuntimeError(f"MongoDB error adding documents to session: {e}") from e
 
 

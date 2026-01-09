@@ -44,7 +44,6 @@ def ask_with_context(query: str, top_k: int = 5, use_reranking: bool = True, doc
     dedup: Dict[str, dict] = {}
     for res in all_results:
         meta = res.get("metadata", {})
-        # Prefer the vector key if present; fall back to filename+chunk_index.
         unique_key = str(res.get("key") or f"{meta.get('filename','')}|{meta.get('chunk_index','')}")
         score = res.get("rerank_score", res.get("score", 0.0))
         if unique_key not in dedup or score > dedup[unique_key].get("_score", 0.0):

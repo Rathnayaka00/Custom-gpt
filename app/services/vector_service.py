@@ -1,4 +1,3 @@
-# app/services/vector_service.py
 import time
 import math
 from typing import List, Dict, Set, Optional
@@ -25,27 +24,19 @@ def _put_vectors_batch(batch: List[Dict], attempt: int = 1):
             raise
 
 def store_vectors_in_s3(processed_chunks: List[Dict], embeddings: List[List[float]], filename: str):
-    """
-    Stores vectors in S3.
-    'processed_chunks' is now a list of dictionaries:
-    [{"content": "...", "type": "table_row"}, ...]
-    """
     if not processed_chunks or len(processed_chunks) != len(embeddings):
         raise ValueError("Mismatch between chunks and embeddings count.")
 
     s3_key_base = filename.rsplit('.', 1)[0]
     vectors_to_store = []
-    
-    # Loop over the processed_chunks list of dicts
+
     for i, chunk_data in enumerate(processed_chunks):
         chunk_text = chunk_data.get('content', '')
         if not chunk_text:
             continue # Skip empty chunks
             
         vector_key = f"{s3_key_base}-chunk{i:04d}"
-        
-        # We get the chunk type directly from the data passed in
-        # No more guessing with _infer_chunk_type
+ 
         chunk_type = chunk_data.get('type', 'general_content')
         
         metadata = {
@@ -56,7 +47,6 @@ def store_vectors_in_s3(processed_chunks: List[Dict], embeddings: List[List[floa
             "chunk_content_type": chunk_type,
         }
 
-        # Optional enrichments from splitter
         if "page_number" in chunk_data and chunk_data.get("page_number") is not None:
             metadata["page_number"] = str(chunk_data.get("page_number"))
         if "section_path" in chunk_data and chunk_data.get("section_path"):
@@ -68,7 +58,6 @@ def store_vectors_in_s3(processed_chunks: List[Dict], embeddings: List[List[floa
             "metadata": metadata,
         })
 
-    # Batch upload the vectors
     for i in range(0, len(vectors_to_store), settings.VECTOR_PUT_BATCH_SIZE):
         batch = vectors_to_store[i:i + settings.VECTOR_PUT_BATCH_SIZE]
         _put_vectors_batch(batch)
@@ -92,17 +81,7 @@ def query_vectors(query_embedding: List[float], top_k: int = 3) -> List[Dict]:
         print(f"Error querying vectors from S3: {e}")
         raise
 
-#
-# THIS FUNCTION IS NO LONGER NEEDED AND HAS BEEN DELETED
-# def _infer_chunk_type(text: str) -> str:
-#
-
-
 def rerank_results(results: List[Dict], query_text: str) -> List[Dict]:
-    """
-    This function now works much more reliably because
-    'chunk_content_type' is accurate.
-    """
     query_lower = (query_text or "").lower()
 
     is_table_query = any(keyword in query_lower for keyword in [
@@ -118,13 +97,11 @@ def rerank_results(results: List[Dict], query_text: str) -> List[Dict]:
     for result in results:
         metadata = result.get("metadata", {})
         content = (metadata.get("source_text") or "").lower()
-        # This metadata field is now accurate (e.g., "table_row")
         content_type = metadata.get("chunk_content_type", "general_content")
 
         base_score = _base_relevance(result)
 
         type_boost = 0.0
-        # This check is now highly effective
         if is_table_query and content_type == "table_row":
             type_boost = 0.4
         elif is_definition_query and content_type == "definition":
@@ -133,7 +110,6 @@ def rerank_results(results: List[Dict], query_text: str) -> List[Dict]:
             type_boost = 0.3
 
         table_boost = 0.0
-        # We can also keep this heuristic as a fallback
         if '[table start]' in content or 'headers:' in content or 'row:' in content:
             table_boost = 0.2 if is_table_query else 0.1
 
@@ -161,13 +137,11 @@ def query_vectors_hybrid(
     doc_ids: Optional[List[str]] = None,
 ) -> List[Dict]:
 
-    # Step 1: initial semantic candidates from AWS vector store
     candidate_k = max(5, min(int(settings.RETRIEVAL_MAX_CANDIDATES), int(candidate_k)))
     candidates = query_vectors(query_embedding, top_k=candidate_k)
     if not candidates:
         return []
 
-    # Optional: restrict results to certain documents (session/document-scoped chat).
     if doc_ids:
         allowed = [d for d in doc_ids if d]
         if allowed:
@@ -180,10 +154,9 @@ def query_vectors_hybrid(
                 if (doc_id and doc_id in allowed) or (key and key.startswith(prefixes)):
                     filtered.append(c)
             candidates = filtered
-            if not candidates:
-                return []
+    if not candidates:
+        return []
 
-    # Step 2: compute base relevance (higher is better) and normalize
     base_sims = [_base_relevance(c) for c in candidates]
     min_s, max_s = min(base_sims), max(base_sims)
     def norm_sim(s: float) -> float:
@@ -191,7 +164,6 @@ def query_vectors_hybrid(
             return 1.0
         return (s - min_s) / (max_s - min_s)
 
-    # Step 3: lexical scoring (BM25-lite, computed on-the-fly over candidates)
     q_tokens = list(_tokenize_list(query_text))
     doc_tokens_list: List[List[str]] = []
     for c in candidates:
@@ -205,12 +177,10 @@ def query_vectors_hybrid(
         N = len(doc_tokens_list)
         if N == 0:
             return []
-        # doc freq
         df: Dict[str, int] = {}
         for toks in doc_tokens_list:
             for t in set(toks):
                 df[t] = df.get(t, 0) + 1
-        # idf
         idf: Dict[str, float] = {}
         for t, f in df.items():
             idf[t] = math.log(1.0 + (N - f + 0.5) / (f + 0.5))
@@ -256,7 +226,6 @@ def query_vectors_hybrid(
         c["_hybrid"] = alpha * c["_vec"] + (1 - alpha) * c["_lex"]
         c["rerank_score"] = c["_hybrid"]
 
-    # Step 4: MMR for diversity (using token Jaccard as similarity proxy)
     selected: List[Dict] = []
     remaining = sorted(candidates, key=lambda x: x.get("_hybrid", 0.0), reverse=True)
     content_tokens_cache: Dict[int, Set[str]] = {}
@@ -294,13 +263,11 @@ def query_vectors_hybrid(
         selected.append(best_item)
         remaining.remove(best_item)
 
-    # Sort final selection by combined relevance
     selected.sort(key=lambda x: x.get("_hybrid", 0.0), reverse=True)
     return selected
 
 
 def _tokenize(text: str) -> Set[str]:
-    # Simple alnum tokenization to avoid heavy deps
     tokens: List[str] = []
     word = []
     for ch in (text or "").lower():
@@ -312,12 +279,10 @@ def _tokenize(text: str) -> Set[str]:
                 word = []
     if word:
         tokens.append("".join(word))
-    # Dedup tokens for Jaccard and overlap
     return set(t for t in tokens if t and t not in _STOPWORDS)
 
 
 def _tokenize_list(text: str) -> List[str]:
-    # Like _tokenize but keeps duplicates for BM25 tf.
     tokens: List[str] = []
     word: List[str] = []
     for ch in (text or "").lower():
@@ -358,7 +323,6 @@ def _base_relevance(result: Dict) -> float:
     if "distance" in result:
         try:
             d = float(result.get("distance", 0.0))
-            # Convert distance to similarity in [0,1)
             return 1.0 / (1.0 + max(0.0, d))
         except Exception:
             pass

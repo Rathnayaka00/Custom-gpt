@@ -21,10 +21,6 @@ async def generate_prompt(request: GeneratePromptRequest):
             if not sess:
                 raise HTTPException(status_code=404, detail="session_id not found")
             doc_ids = sess.get("document_ids") or None
-        elif request.s3_key:
-            doc_ids = [request.s3_key]
-            # Create a new session tied to this document so we can store prompts.
-            session_id = await create_session(doc_ids)
         else:
             # No doc scope provided; still create a session so prompts can be stored.
             session_id = await create_session([])
@@ -32,7 +28,6 @@ async def generate_prompt(request: GeneratePromptRequest):
         out = await generate_dynamic_prompt(
             request.intent,
             doc_ids=doc_ids,
-            attachment_details=request.attachment_details,
             top_k=request.top_k,
         )
 
@@ -42,7 +37,6 @@ async def generate_prompt(request: GeneratePromptRequest):
                 intent=request.intent,
                 prompt=out["prompt"],
                 document_ids=doc_ids,
-                attachment_details=request.attachment_details,
                 used_context=bool(out.get("used_context")),
             )
         except Exception:

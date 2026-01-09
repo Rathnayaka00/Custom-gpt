@@ -73,7 +73,6 @@ def create_embedding(text: str) -> List[float]:
 
 def create_embeddings_batch(texts: List[str]) -> List[List[float]]:
     logger.info("Starting embeddings for %d chunks", len(texts))
-    # Constrain concurrency to avoid remote disconnects
     max_workers = max(1, int(settings.EMBEDDING_MAX_WORKERS))
     with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
         embeddings = list(executor.map(create_embedding, texts))

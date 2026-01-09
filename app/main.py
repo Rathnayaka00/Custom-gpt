@@ -11,8 +11,6 @@ from app.services.session_service import ensure_session_indexes
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    # Ensure MongoDB indexes (TTL/session_id) if Mongo is configured/running.
-    # This is safe even if Mongo isn't up yet; we only warn on failure.
     await ensure_session_indexes()
     yield
     await close_mongo_client()
@@ -25,7 +23,6 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS configuration for local development (Next.js on port 3000)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[

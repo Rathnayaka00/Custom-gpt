@@ -12,15 +12,11 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
-def _select_prompt(sess: dict, prompt_index: int | None) -> str:
+def _select_prompt(sess: dict) -> str:
     prompts = (sess or {}).get("generated_prompts") or []
     if not prompts:
         return ""
-    if prompt_index is None:
-        return str(prompts[-1].get("prompt") or "").strip()
-    if 0 <= int(prompt_index) < len(prompts):
-        return str(prompts[int(prompt_index)].get("prompt") or "").strip()
-    return ""
+    return str(prompts[0].get("prompt") or "").strip()
 
 
 @router.post("/execute-with-prompt", response_model=ExecuteWithPromptResponse)
@@ -31,11 +27,10 @@ async def execute_with_prompt(request: ExecuteWithPromptRequest):
             raise HTTPException(status_code=404, detail="session_id not found")
 
         doc_ids = sess.get("document_ids") or None
-        system_prompt = _select_prompt(sess, request.prompt_index)
+        system_prompt = _select_prompt(sess)
         if not system_prompt:
             raise HTTPException(status_code=400, detail="No generated prompt found for this session_id. Call /generate-prompt first.")
 
-        # Build doc-scoped context via existing embeddings/vector retrieval.
         context = ""
         used_context = False
         try:
@@ -48,7 +43,6 @@ async def execute_with_prompt(request: ExecuteWithPromptRequest):
             context = (ctx or {}).get("context", "") or ""
             used_context = bool(context.strip())
         except Exception:
-            # If embeddings are down, still execute using system prompt only.
             context = ""
             used_context = False
 
@@ -57,7 +51,6 @@ async def execute_with_prompt(request: ExecuteWithPromptRequest):
             lambda: generate_answer_with_system_prompt(system_prompt, request.query, context),
         )
 
-        # Persist to Mongo
         try:
             await append_execution(
                 request.session_id,

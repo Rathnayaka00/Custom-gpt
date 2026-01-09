@@ -24,13 +24,9 @@ def _ensure_act_as(prompt: str, fallback_role: str) -> str:
     return f"Act as {fallback_role}. {p}"
 
 def _prompt_too_short(prompt: str) -> bool:
-    """
-    Heuristic guard: we want a well-explained prompt (not a short sentence).
-    """
     p = (prompt or "").strip()
     if not p:
         return True
-    # Roughly: a "long prompt" should have multiple paragraphs/sections.
     return (len(p) < 1200) or (p.count("\n") < 6)
 
 def _strip_reasoning_tags(text: str) -> str:
@@ -41,11 +37,9 @@ def _strip_reasoning_tags(text: str) -> str:
     return t
 
 
-def _build_background(intent: str, context: str, attachment_details: Optional[str]) -> str:
+def _build_background(intent: str, context: str) -> str:
     parts: List[str] = []
     parts.append(f"User intent (very short): {intent.strip()}")
-    if attachment_details and attachment_details.strip():
-        parts.append("Attachment / extra details:\n" + attachment_details.strip())
     if context and context.strip():
         parts.append("Relevant extracted context (RAG snippets):\n" + context.strip())
     return "\n\n".join(parts).strip()
@@ -54,12 +48,8 @@ def _build_background(intent: str, context: str, attachment_details: Optional[st
 def _generate_prompt_sync(
     intent: str,
     context: str,
-    attachment_details: Optional[str],
 ) -> Tuple[str, str]:
-    """
-    Returns (prompt, role).
-    """
-    background = _build_background(intent=intent, context=context, attachment_details=attachment_details)
+    background = _build_background(intent=intent, context=context)
 
     system = (
         "You are a senior prompt engineer for professional report-writing workflows. "
@@ -109,7 +99,6 @@ def _generate_prompt_sync(
         msg = (choices[0].get("message") or {}) if choices else {}
         return (msg.get("content") or "").strip()
 
-    # First attempt
     content1 = _call_bedrock([
         {"role": "system", "content": system},
         {"role": "user", "content": user},
@@ -117,7 +106,6 @@ def _generate_prompt_sync(
     role = "a senior professional report writer"
     prompt = _ensure_act_as(_strip_reasoning_tags(content1), fallback_role=role)
 
-    # If too short, ask once more to expand significantly.
     if _prompt_too_short(prompt):
         expand_user = (
             "Your previous prompt is too short. Expand it substantially.\n"
@@ -139,18 +127,12 @@ async def generate_dynamic_prompt(
     intent: str,
     *,
     doc_ids: Optional[List[str]] = None,
-    attachment_details: Optional[str] = None,
     top_k: int = 8,
 ) -> Dict[str, Any]:
-    """
-    Builds prompt using Bedrock model (BEDROCK_MODEL_ID) and optional RAG context (scoped by doc_ids).
-    """
     intent = (intent or "").strip()
     if not intent:
         raise ValueError("intent is required")
 
-    # Reuse existing embedding/vector retrieval to create a compact context.
-    # Important: embeddings can be slow/unreachable; keep prompt-gen responsive.
     context = ""
     try:
         loop = asyncio.get_running_loop()
@@ -161,7 +143,6 @@ async def generate_dynamic_prompt(
         ctx = await asyncio.wait_for(fut, timeout=8.0)
         context = (ctx or {}).get("context", "") or ""
     except Exception:
-        # Skip context if RAG/embeddings times out or fails.
         context = ""
     used_context = bool(context.strip())
 
@@ -169,7 +150,6 @@ async def generate_dynamic_prompt(
         _generate_prompt_sync,
         intent,
         context,
-        attachment_details,
     )
     return {
         "prompt": prompt,
